@@ -7,7 +7,7 @@
 
 import Foundation
 
-public typealias DidSendBodyData =  (@Sendable (_ task: URLSessionTask,
+public typealias DidSendBodyData =  ((_ task: URLSessionTask,
                                      _ bytesSent: Int64,
                                      _ totalBytesSent: Int64,
                                      _ totalBytesExpectedToSend: Int64)->())
