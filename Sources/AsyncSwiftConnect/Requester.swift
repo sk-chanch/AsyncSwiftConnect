@@ -24,19 +24,20 @@ public class Requester: NSObject {
     private let hasVersion:Bool
     
     private lazy var session: URLSession = {
-        let sessionPinning = SessionPinningDelegate(statusPreventPinning: preventPinning, didSendBodyData: { [weak self] task, _, _, _ in
-            print("task:\( task.taskIdentifier)\nprogress\(task.progress.fractionCompleted)")
-        })
+        let sessionPinning = SessionPinningDelegate(statusPreventPinning: preventPinning, didSendBodyData: didSendBodyData)
         let session = URLSession(configuration: .default, delegate: sessionPinning, delegateQueue: nil)
         
         return session
     }()
     
+    var didSendBodyData: DidSendBodyData?
+    
     public init(initBaseUrl:String,
                 timeout:Int,
                 isPreventPinning:Bool,
                 initSessionConfig:URLSessionConfiguration,
-                hasVersion:Bool = false){
+                hasVersion:Bool = false,
+                didSendBodyData: DidSendBodyData? = nil) {
         
         self.baseUrl = initBaseUrl
         //self.requester = initRequester
@@ -44,6 +45,7 @@ public class Requester: NSObject {
         self.sessionConfig = initSessionConfig
         self.sessionConfig.timeoutIntervalForRequest = TimeInterval(timeout)
         self.hasVersion = hasVersion
+        self.didSendBodyData = didSendBodyData
     }
     
     public func postQuery<DataResult:Decodable>(path:String,
@@ -161,8 +163,16 @@ public class Requester: NSObject {
     func call<DataResult:Decodable>(_ request: URLRequest,
                                     config: URLSessionConfiguration,
                                     isPreventPinning:Bool) async throws -> DataResult {
-        let (data, response) = try await session.data(for: request)
-        return try await self.processData(request: request, data: data, response: response)
+        do {
+            let (data, response) = try await session.data(for: request)
+            return try await self.processData(request: request, data: data, response: response)
+        } catch {
+            if let error = error as? NSError {
+                throw CustomError(error: error)
+            }
+            
+            throw error
+        }
     }
     
     private func processData<DataResult:Decodable>(request: URLRequest, data: Data?, response: URLResponse?) async throws -> DataResult {
