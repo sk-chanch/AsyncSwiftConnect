@@ -167,31 +167,27 @@ public class Requester: NSObject {
             let (data, response) = try await session.data(for: request)
             return try await self.processData(request: request, data: data, response: response)
         } catch {
-            if let error = error as? NSError {
-                throw CustomError(error: error)
-            }
-            
-            throw error
+            throw AsyncSwiftConnectError(error: error)
         }
     }
     
     private func processData<DataResult:Decodable>(request: URLRequest, data: Data?, response: URLResponse?) async throws -> DataResult {
         
         guard let httpURLResponse = response as? HTTPURLResponse
-        else { throw CustomError(unknowError: "parse HTTPURLResponse") }
+        else { throw AsyncSwiftConnectError(unknowError: "parse HTTPURLResponse") }
         
         let statusCode =  httpURLResponse.statusCode
         
         do {
             guard let data = data
-            else { throw CustomError(unknowError: "Data nil") }
+            else { throw AsyncSwiftConnectError(unknowError: "Data nil") }
             
             if statusCode == 200 {
                 return try decoder.decode(DataResult.self, from: data)
             } else {
                 
                 let token = try request.allHTTPHeaderFields?.tryValue(forKey: "Authorize") ?? "empty"
-                var customError = CustomError(responseCode: httpURLResponse.statusCode)
+                var customError = AsyncSwiftConnectError(responseCode: httpURLResponse.statusCode)
                 
                 let apiUrl = httpURLResponse.url?.absoluteString ?? ""
                 let errorCode = httpURLResponse.statusCode
@@ -210,7 +206,7 @@ public class Requester: NSObject {
             }
             
         } catch {
-            var customError = CustomError(responseCode: statusCode)
+            var customError = AsyncSwiftConnectError(responseCode: statusCode)
             
             let apiUrl = httpURLResponse.url?.absoluteString ?? ""
             let bodyString = String(data: request.httpBody ?? .init(), encoding: .utf8) ?? "-"
@@ -234,16 +230,16 @@ public class Requester: NSObject {
             let (data, response) = try await session.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse
-            else { throw CustomError(unknowError: "parse HTTPURLResponse") }
+            else { throw AsyncSwiftConnectError(unknowError: "parse HTTPURLResponse") }
             
             if httpResponse.statusCode == 200 {
                 return RawResponse(statusCode: httpResponse.statusCode, data: data)
             } else {
-                throw CustomError(responseCode: httpResponse.statusCode)
+                throw AsyncSwiftConnectError(responseCode: httpResponse.statusCode)
             }
             
         } catch {
-            throw CustomError(error: error)
+            throw AsyncSwiftConnectError(error: error)
         }
     }
 }
@@ -307,7 +303,7 @@ extension Requester{
     func callUpload<DataResult:Decodable>(_ request: URLRequest, config:URLSessionConfiguration,isPreventPinning:Bool, dataUploadTask:Data?) async throws -> DataResult {
         
         guard let dataUploadTask = dataUploadTask
-        else { throw CustomError(unknowError: "dataUploadTask nil") }
+        else { throw AsyncSwiftConnectError(unknowError: "dataUploadTask nil") }
         
         let (data, response) = try await session.upload(for: request, from: dataUploadTask)
         return try await self.processData(request: request, data: data, response: response)

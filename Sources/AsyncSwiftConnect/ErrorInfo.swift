@@ -22,24 +22,23 @@ public protocol ErrorInfo: Error {
 }
 
 
-struct CustomError: ErrorInfo {
-    var errorCode: String?
-    var errorFriendlyEn: String?
-    var errorFriendlyTh: String?
-    var errorInfo: String?
-    var error: NSError?
+public struct AsyncSwiftConnectError: ErrorInfo {
+    public var errorCode: String?
+    public var errorFriendlyEn: String?
+    public var errorFriendlyTh: String?
+    public var errorInfo: String?
+    public var error: NSError?
     
-    init(error: Error) {
+    public init(error: Error) {
         self.error = error as NSError
         self.errorInfo = error.localizedDescription
     }
     
-    init(responseCode: Int) {
+    public init(responseCode: Int) {
         self.errorCode = String(responseCode)
-        self.errorFriendlyEn = "Error with response code: \(responseCode)"
     }
     
-    init(unknowError: String) {
+    public init(unknowError: String) {
         self.errorInfo = unknowError
     }
 }
