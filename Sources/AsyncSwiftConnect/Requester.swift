@@ -178,47 +178,54 @@ public class Requester: NSObject {
         
         let statusCode =  httpURLResponse.statusCode
         
-        do {
-            guard let data = data
-            else { throw AsyncSwiftConnectError(unknowError: "Data nil") }
+        // Handle non-200 status codes first
+        if statusCode != 200 {
+            let jwtToken = request.allHTTPHeaderFields?.tryValue(forKey: "Authorization") ?? "empty"
+            let token = request.allHTTPHeaderFields?.tryValue(forKey: "Authorize") ?? jwtToken
+            var customError = AsyncSwiftConnectError(responseCode: httpURLResponse.statusCode)
             
-            if statusCode == 200 {
-                return try decoder.decode(DataResult.self, from: data)
-            } else {
-                
-                let token = try request.allHTTPHeaderFields?.tryValue(forKey: "Authorize") ?? "empty"
-                var customError = AsyncSwiftConnectError(responseCode: httpURLResponse.statusCode)
-                
-                let apiUrl = httpURLResponse.url?.absoluteString ?? ""
-                let errorCode = httpURLResponse.statusCode
-                let responseString = String(data: data, encoding: .utf8) ?? "-"
-                let bodyString = String(data: request.httpBody ?? .init(), encoding: .utf8) ?? "-"
-                
-                var errorString = ""
-                errorString.append("service: \(apiUrl)")
-                errorString.append("\nbody: \(bodyString)")
-                errorString.append("\nresponse_code: \(errorCode)")
-                errorString.append("\ntoken: \(token)")
-                errorString.append("\nerror: \(responseString)")
-                
-                customError.errorInfo = errorString
-                throw customError
+            let apiUrl = httpURLResponse.url?.absoluteString ?? ""
+            let errorCode = httpURLResponse.statusCode
+            let responseString = String(data: data ?? .init(), encoding: .utf8) ?? "-"
+            let bodyString = String(data: request.httpBody ?? .init(), encoding: .utf8) ?? "-"
+            
+            var errorString = "=========== 🚨 API Error ==========="
+            errorString.append("\n📍 Endpoint: \n\(apiUrl)")
+            errorString.append("\n📤 Request Body: \n\(bodyString)")
+            errorString.append("\n📡 Response Code: \n\(errorCode)")
+            errorString.append("\n🔐 Token: \n\(token)")
+            if statusCode == 401 {
+                errorString.append("\n🧠 Reason: \nUnauthorized")
             }
             
+            
+            customError.errorCode = String(errorCode)
+            customError.errorInfo = errorString
+            customError.rawResponseValue = responseString
+            
+            throw customError
+        }
+        
+        do {
+            return try decoder.decode(DataResult.self, from: data ?? .init())
         } catch {
             var customError = AsyncSwiftConnectError(responseCode: statusCode)
             
             let apiUrl = httpURLResponse.url?.absoluteString ?? ""
             let bodyString = String(data: request.httpBody ?? .init(), encoding: .utf8) ?? "-"
-            let token = try request.allHTTPHeaderFields?.tryValue(forKey: "Authorize") ?? "empty"
-            
-            var errorString = ""
-            errorString.append("service: \(apiUrl)")
-            errorString.append("\nbody: \(bodyString)")
-            errorString.append("\ntoken: \(token)")
-            errorString.append("\nerror_decode_fail: \(error)")
+            let jwtToken = request.allHTTPHeaderFields?.tryValue(forKey: "Authorization") ?? "empty"
+            let token = request.allHTTPHeaderFields?.tryValue(forKey: "Authorize") ?? jwtToken
+           
+            var errorString = "=========== ❗️ Decode Failed 🧨📦❓ ==========="
+            errorString.append("\n📍 Endpoint: \n\(apiUrl)")
+            errorString.append("\n📤 Request Body: \n\(bodyString)")
+            errorString.append("\n📡 Response Code: \n\(statusCode)")
+            errorString.append("\n🔐 Token: \n\(token)")
+            errorString.append("\n🧠 Reason: \n\(error)")
             
             customError.errorInfo = errorString
+            customError.errorCode = String(statusCode)
+            customError.rawResponseValue = String(data: data ?? .init(), encoding: .utf8)
             throw customError
         }
     }
@@ -317,8 +324,8 @@ public struct DictionaryTryValueError: Error {
 }
 
 public extension Dictionary {
-    func tryValue(forKey key: Key, error: Error = DictionaryTryValueError()) throws -> Value {
-        guard let value = self[key] else { throw error }
+    func tryValue(forKey key: Key, error: Error = DictionaryTryValueError()) -> Value? {
+        guard let value = self[key] else { return nil}
         return value
     }
     

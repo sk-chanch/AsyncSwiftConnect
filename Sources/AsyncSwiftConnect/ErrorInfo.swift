@@ -14,6 +14,7 @@ public protocol ErrorInfo: Error {
     var errorFriendlyTh:String? { get set }
     var errorInfo:String? { get set }
     var error: NSError? { get set }
+    var rawResponseValue: String? { get set }
     
     init(error:Error)
     init(responseCode:Int)
@@ -23,6 +24,7 @@ public protocol ErrorInfo: Error {
 
 
 public struct AsyncSwiftConnectError: ErrorInfo {
+    public var rawResponseValue: String?
     public var errorCode: String?
     public var errorFriendlyEn: String?
     public var errorFriendlyTh: String?
