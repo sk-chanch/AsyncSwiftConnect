@@ -128,13 +128,17 @@ public class Requester: NSObject {
     }
 #endif
     
-    public func get<DataResult:Decodable>(path:String, sendParameter:Encodable? = nil) async throws -> DataResult {
+    public func get<DataResult:Decodable>(path:String,
+                                          sendParameter:Encodable? = nil,
+                                          header:[String:String]? = nil,
+                                          version: String) async throws -> DataResult {
         let requestParameter = RequestParameter(
             httpMethod: .get,
             path: path,
             baseUrl: self.baseUrl,
             query: sendParameter?.dictionaryValue ?? nil,
-            headers: nil,
+            headers: header,
+            version: version,
             hasVersion: hasVersion).asURLRequest()
         
         return  try await self.call(requestParameter,config: sessionConfig, isPreventPinning: preventPinning)
