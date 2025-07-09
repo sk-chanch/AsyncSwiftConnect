@@ -131,7 +131,7 @@ public class Requester: NSObject {
     public func get<DataResult:Decodable>(path:String,
                                           sendParameter:Encodable? = nil,
                                           header:[String:String]? = nil,
-                                          version: String) async throws -> DataResult {
+                                          version: String = "") async throws -> DataResult {
         let requestParameter = RequestParameter(
             httpMethod: .get,
             path: path,
