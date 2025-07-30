@@ -152,7 +152,7 @@ public class BoundaryCreater {
         switch valueBoundary {
         case let .data(dataFile, key, fileName):
             data.append("Content-Disposition: form-data; name=\"\(key)\"; filename=\"\(fileName)\"\r\n")
-            data.append("Content-Type: image/่jpge\r\n\r\n")
+            data.append("Content-Type: image/jpge\r\n\r\n")
             data.append(dataFile)
             
         case let .string(key, value):
