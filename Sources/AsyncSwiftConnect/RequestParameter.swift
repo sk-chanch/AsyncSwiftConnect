@@ -124,7 +124,7 @@ public class BoundaryCreater {
                     createBoundaryItem(valueBoundary: .data(imageData, key, fileName))
                 }
                 
-            case let .vdo(key, urlFile):
+            case let .file(key, urlFile):
                 if let vdoData = try? Data(contentsOf: urlFile) {
                     let fileName = urlFile.lastPathComponent
                     createBoundaryItem(valueBoundary: .data(vdoData, key, fileName))
@@ -152,7 +152,9 @@ public class BoundaryCreater {
         switch valueBoundary {
         case let .data(dataFile, key, fileName):
             data.append("Content-Disposition: form-data; name=\"\(key)\"; filename=\"\(fileName)\"\r\n")
-            data.append("Content-Type: image/jpge\r\n\r\n")
+            if let url = URL(string: fileName) {
+                data.append("Content-Type: \(determineContentType(for: url))\r\n\r\n")
+            }
             data.append(dataFile)
             
         case let .string(key, value):
@@ -180,7 +182,30 @@ public class BoundaryCreater {
     
     public enum DataBoundary{
         case image(_ key:String,_ fileName:String,_ image:UIImage?)
-        case vdo(_ key:String,_ urlFile:URL)
+        case file(_ key: String, _ urlFile: URL)
+    }
+    
+    private func determineContentType(for url: URL) -> String {
+        let fileExtension = url.pathExtension.lowercased()
+        switch fileExtension {
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png": return "image/png"
+            
+            // Videos
+        case "mp4": return "video/mp4"
+        case "mov": return "video/quicktime"
+        case "avi": return "video/x-msvideo"
+        case "wmv": return "video/x-ms-wmv"
+        case "m4v": return "video/x-m4v"
+        case "3gp": return "video/3gpp"
+        case "webm": return "video/webm"
+            
+            // Documents
+        case "pdf": return "application/pdf"
+        case "doc", "docx": return "application/msword"
+            
+        default: return "application/octet-stream"
+        }
     }
 }
 
