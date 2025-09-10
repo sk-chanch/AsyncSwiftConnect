@@ -114,10 +114,16 @@ public class BoundaryCreater {
         return self
     }
     
-    public func addToBoundary(_ dict:[String:String]?, dataBoundary:DataBoundary? = nil)->BoundaryCreater{
-       
-        
-        if let dataBoundary = dataBoundary{
+    public func addToBoundary(_ dict:[String:String]?, dataBoundary:DataBoundary? = nil) -> BoundaryCreater{
+        if let dataBoundary {
+            return self.addToBoundary(dict, dataBoundaryList: [dataBoundary])
+        } else {
+            return self
+        }
+    }
+    
+    public func addToBoundary(_ dict: [String:String]?, dataBoundaryList: [DataBoundary]? = nil) -> BoundaryCreater {
+        dataBoundaryList?.forEach { dataBoundary in
             switch dataBoundary {
             case let .image(key, fileName, image):
                 if let imageData = image?.jpegData(compressionQuality: 1) {
@@ -131,7 +137,6 @@ public class BoundaryCreater {
                 }
                 
             }
-            
         }
         
         if let dict = dict{

@@ -101,11 +101,23 @@ public class Requester: NSObject {
         return  try await self.call(requestParameter,config: sessionConfig,isPreventPinning: preventPinning)
         
     }
-#if canImport(UIKit)
-    public func postBoundary<DataResult:Decodable>(path:String,
-                                                   sendParameter:Encodable? = nil,
-                                                   header:[String:String]? = nil,
-                                                   dataBoundary:BoundaryCreater.DataBoundary? = nil,
+#if canImport(SwiftUI)
+    public func postBoundary<DataResult:Decodable>(path: String,
+                                                   sendParameter: Encodable? = nil,
+                                                   header: [String:String]? = nil,
+                                                   dataBoundary: BoundaryCreater.DataBoundary? = nil,
+                                                   version: String) async throws -> DataResult {
+        return try await self.postBoundary(path: path,
+                                           sendParameter: sendParameter,
+                                           header: header,
+                                           dataBoundaryList: [dataBoundary].compactMap{ $0 },
+                                           version: version)
+    }
+    
+    public func postBoundary<DataResult:Decodable>(path: String,
+                                                   sendParameter: Encodable? = nil,
+                                                   header: [String:String]? = nil,
+                                                   dataBoundaryList: [BoundaryCreater.DataBoundary]? = nil,
                                                    version: String) async throws -> DataResult {
         
         let boundaryCreater = BoundaryCreater()
@@ -120,7 +132,7 @@ public class Requester: NSObject {
             hasVersion: hasVersion).asURLRequest()
         
         let data = boundaryCreater
-            .addToBoundary(sendParameter?.dictionaryStringValue, dataBoundary: dataBoundary)
+            .addToBoundary(sendParameter?.dictionaryStringValue, dataBoundaryList: dataBoundaryList)
             .addEndBoundary()
             .setRequestMultipart(&requestParameter)
         
