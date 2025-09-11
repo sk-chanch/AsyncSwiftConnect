@@ -9,12 +9,6 @@ import Foundation
 
 public typealias DecodError = Decodable & ErrorInfo
 
-enum UploadResponse<T: Decodable> {
-    case progress(percentage: Double)
-    case response(T)
-    case rawResponse(RawResponse)
-}
-
 public class Requester: NSObject {
     
     private let baseUrl:String
@@ -22,9 +16,30 @@ public class Requester: NSObject {
     private let sessionConfig:URLSessionConfiguration
     private let preventPinning:Bool
     private let hasVersion:Bool
+    private let progressTracker = ProgressTracker()
     
     private lazy var session: URLSession = {
-        let sessionPinning = SessionPinningDelegate(statusPreventPinning: preventPinning, didSendBodyData: didSendBodyData)
+        let sessionPinning = SessionPinningDelegate(statusPreventPinning: preventPinning, didSendBodyData: {  [weak self] task, bytesSent, totalBytesSent, totalBytesExpectedToSend in
+            // Call the global handler if provided
+            self?.didSendBodyData?(task, bytesSent, totalBytesSent, totalBytesExpectedToSend)
+            
+            if totalBytesExpectedToSend > 0 {
+                let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
+                
+                Task {
+                    await self?.progressTracker.updateProgress(taskId: task.taskIdentifier,
+                                                               progress: progress)
+                }
+                
+                // Remove the progress handler when the upload is complete
+                if totalBytesSent >= totalBytesExpectedToSend {
+                    Task {
+                        await self?.progressTracker.remove(taskId: task.taskIdentifier)
+                    }
+                }
+            }
+        })
+        
         let session = URLSession(configuration: .default, delegate: sessionPinning, delegateQueue: nil)
         
         return session
@@ -106,19 +121,22 @@ public class Requester: NSObject {
                                                    sendParameter: Encodable? = nil,
                                                    header: [String:String]? = nil,
                                                    dataBoundary: BoundaryCreater.DataBoundary? = nil,
-                                                   version: String) async throws -> DataResult {
+                                                   version: String,
+                                                   progress: ((Double) -> Void)? = nil) async throws -> DataResult {
         return try await self.postBoundary(path: path,
                                            sendParameter: sendParameter,
                                            header: header,
                                            dataBoundaryList: [dataBoundary].compactMap{ $0 },
-                                           version: version)
+                                           version: version,
+                                           progress: progress)
     }
     
     public func postBoundary<DataResult:Decodable>(path: String,
                                                    sendParameter: Encodable? = nil,
                                                    header: [String:String]? = nil,
                                                    dataBoundaryList: [BoundaryCreater.DataBoundary]? = nil,
-                                                   version: String) async throws -> DataResult {
+                                                   version: String,
+                                                   progress: ((Double) -> Void)? = nil) async throws -> DataResult {
         
         let boundaryCreater = BoundaryCreater()
         
@@ -136,7 +154,11 @@ public class Requester: NSObject {
             .addEndBoundary()
             .setRequestMultipart(&requestParameter)
         
-        return  try await self.callUpload(requestParameter,config: sessionConfig,isPreventPinning: preventPinning, dataUploadTask : data)
+        return  try await self.callUpload(requestParameter,
+                                          config: sessionConfig,
+                                          isPreventPinning: preventPinning,
+                                          dataUploadTask : data,
+                                          progress: progress)
     }
 #endif
     
@@ -181,71 +203,12 @@ public class Requester: NSObject {
                                     isPreventPinning:Bool) async throws -> DataResult {
         do {
             let (data, response) = try await session.data(for: request)
-            return try await self.processData(request: request, data: data, response: response)
+            let responder = Responder()
+            return try await responder.processData(request: request, data: data, response: response)
         } catch {
             throw AsyncSwiftConnectError(error: error)
         }
     }
-    
-    private func processData<DataResult:Decodable>(request: URLRequest, data: Data?, response: URLResponse?) async throws -> DataResult {
-        
-        guard let httpURLResponse = response as? HTTPURLResponse
-        else { throw AsyncSwiftConnectError(unknowError: "parse HTTPURLResponse") }
-        
-        let statusCode =  httpURLResponse.statusCode
-        
-        // Handle non-200 status codes first
-        if statusCode != 200 {
-            let jwtToken = request.allHTTPHeaderFields?.tryValue(forKey: "Authorization") ?? "empty"
-            let token = request.allHTTPHeaderFields?.tryValue(forKey: "Authorize") ?? jwtToken
-            var customError = AsyncSwiftConnectError(responseCode: httpURLResponse.statusCode)
-            
-            let apiUrl = httpURLResponse.url?.absoluteString ?? ""
-            let errorCode = httpURLResponse.statusCode
-            let responseString = String(data: data ?? .init(), encoding: .utf8) ?? "-"
-            let bodyString = String(data: request.httpBody ?? .init(), encoding: .utf8) ?? "-"
-            
-            var errorString = "=========== 🚨 API Error ==========="
-            errorString.append("\n📍 Endpoint: \n\(apiUrl)")
-            errorString.append("\n📤 Request Body: \n\(bodyString)")
-            errorString.append("\n📡 Response Code: \n\(errorCode)")
-            errorString.append("\n🔐 Token: \n\(token)")
-            if statusCode == 401 {
-                errorString.append("\n🧠 Reason: \nUnauthorized")
-            }
-            
-            
-            customError.errorCode = String(errorCode)
-            customError.errorInfo = errorString
-            customError.rawResponseValue = responseString
-            
-            throw customError
-        }
-        
-        do {
-            return try decoder.decode(DataResult.self, from: data ?? .init())
-        } catch {
-            var customError = AsyncSwiftConnectError(responseCode: statusCode)
-            
-            let apiUrl = httpURLResponse.url?.absoluteString ?? ""
-            let bodyString = String(data: request.httpBody ?? .init(), encoding: .utf8) ?? "-"
-            let jwtToken = request.allHTTPHeaderFields?.tryValue(forKey: "Authorization") ?? "empty"
-            let token = request.allHTTPHeaderFields?.tryValue(forKey: "Authorize") ?? jwtToken
-           
-            var errorString = "=========== ❗️ Decode Failed 🧨📦❓ ==========="
-            errorString.append("\n📍 Endpoint: \n\(apiUrl)")
-            errorString.append("\n📤 Request Body: \n\(bodyString)")
-            errorString.append("\n📡 Response Code: \n\(statusCode)")
-            errorString.append("\n🔐 Token: \n\(token)")
-            errorString.append("\n🧠 Reason: \n\(error)")
-            
-            customError.errorInfo = errorString
-            customError.errorCode = String(statusCode)
-            customError.rawResponseValue = String(data: data ?? .init(), encoding: .utf8)
-            throw customError
-        }
-    }
-    
     
     func call(_ request: URLRequest, config:URLSessionConfiguration,isPreventPinning:Bool) async throws -> RawResponse {
         
@@ -323,13 +286,54 @@ extension Dictionary where Key == String, Value == Any {
 
 extension Requester{
     
-    func callUpload<DataResult:Decodable>(_ request: URLRequest, config:URLSessionConfiguration,isPreventPinning:Bool, dataUploadTask:Data?) async throws -> DataResult {
-        
+    func callUpload<DataResult:Decodable>(_ request: URLRequest,
+                                          config:URLSessionConfiguration,
+                                          isPreventPinning:Bool,
+                                          dataUploadTask:Data?,
+                                          progress: ((Double) -> Void)? = nil) async throws -> DataResult {
         guard let dataUploadTask = dataUploadTask
         else { throw AsyncSwiftConnectError(unknowError: "dataUploadTask nil") }
         
-        let (data, response) = try await session.upload(for: request, from: dataUploadTask)
-        return try await self.processData(request: request, data: data, response: response)
+        if let progress {
+            return try await withCheckedThrowingContinuation { [weak self] continuation in
+                let task = self?.session.uploadTask(with: request, from: dataUploadTask) { data, response, error in
+                    
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                    }
+                    
+                    guard let data = data,
+                          let response = response
+                    else {
+                        continuation.resume(throwing: AsyncSwiftConnectError(unknowError: "No data or response"))
+                        return
+                    }
+                    
+                    
+                    Task {
+                        let responder = Responder()
+                        guard let result: DataResult = try await responder.processData(request: request, data: data, response: response)
+                        else {
+                            continuation.resume(throwing: AsyncSwiftConnectError(unknowError: "No data or response"))
+                            return
+                        }
+                        
+                        continuation.resume(returning: result)
+                    }
+                }
+                
+                Task {
+                    await self?.progressTracker.register(taskId: task?.taskIdentifier, handler: progress)
+                }
+                
+                task?.resume()
+            }
+        } else {
+            let (data, response) = try await session.upload(for: request, from: dataUploadTask)
+            let responder = Responder()
+            
+            return try await responder.processData(request: request, data: data, response: response)
+        }
     }
 }
 
