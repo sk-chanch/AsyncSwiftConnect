@@ -204,7 +204,7 @@ public class Requester: NSObject {
         do {
             let (data, response) = try await session.data(for: request)
             let responder = Responder()
-            return try await responder.processData(request: request, data: data, response: response)
+            return try responder.processData(request: request, data: data, response: response)
         } catch {
             throw AsyncSwiftConnectError(error: error)
         }
@@ -309,16 +309,17 @@ extension Requester{
                         return
                     }
                     
-                    
-                    Task {
+                    do {
                         let responder = Responder()
-                        guard let result: DataResult = try await responder.processData(request: request, data: data, response: response)
+                        guard let result: DataResult = try responder.processData(request: request, data: data, response: response)
                         else {
                             continuation.resume(throwing: AsyncSwiftConnectError(unknowError: "No data or response"))
                             return
                         }
                         
                         continuation.resume(returning: result)
+                    } catch {
+                        continuation.resume(throwing: error)
                     }
                 }
                 
@@ -332,7 +333,7 @@ extension Requester{
             let (data, response) = try await session.upload(for: request, from: dataUploadTask)
             let responder = Responder()
             
-            return try await responder.processData(request: request, data: data, response: response)
+            return try responder.processData(request: request, data: data, response: response)
         }
     }
 }

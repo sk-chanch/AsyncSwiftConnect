@@ -9,7 +9,7 @@ import Foundation
 
 struct Responder {
     
-    func processData<DataResult:Decodable>(request: URLRequest, data: Data?, response: URLResponse?) async throws -> DataResult {
+    func processData<DataResult:Decodable>(request: URLRequest, data: Data?, response: URLResponse?) throws -> DataResult {
         
         guard let httpURLResponse = response as? HTTPURLResponse
         else { throw AsyncSwiftConnectError(unknowError: "parse HTTPURLResponse") }
