@@ -299,23 +299,14 @@ extension Requester{
                 let task = self?.session.uploadTask(with: request, from: dataUploadTask) { data, response, error in
                     
                     if let error = error {
-                        continuation.resume(throwing: error)
-                    }
-                    
-                    guard let data = data,
-                          let response = response
-                    else {
-                        continuation.resume(throwing: AsyncSwiftConnectError(unknowError: "No data or response"))
-                        return
+                        continuation.resume(throwing: AsyncSwiftConnectError(error: error))
                     }
                     
                     do {
                         let responder = Responder()
-                        guard let result: DataResult = try responder.processData(request: request, data: data, response: response)
-                        else {
-                            continuation.resume(throwing: AsyncSwiftConnectError(unknowError: "No data or response"))
-                            return
-                        }
+                        let result: DataResult = try responder.processData(request: request,
+                                                                           data: data,
+                                                                           response: response)
                         
                         continuation.resume(returning: result)
                     } catch {
