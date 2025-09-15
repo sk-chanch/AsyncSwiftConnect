@@ -130,9 +130,9 @@ public class BoundaryCreater {
                     createBoundaryItem(valueBoundary: .data(imageData, key, fileName))
                 }
                 
-            case let .file(key, urlFile):
+            case let .file(key, urlFile, fileName):
                 if let vdoData = try? Data(contentsOf: urlFile) {
-                    let fileName = urlFile.lastPathComponent
+                    let fileName = fileName ?? urlFile.lastPathComponent
                     createBoundaryItem(valueBoundary: .data(vdoData, key, fileName))
                 }
                 
@@ -187,7 +187,7 @@ public class BoundaryCreater {
     
     public enum DataBoundary{
         case image(_ key:String,_ fileName:String,_ image:UIImage?)
-        case file(_ key: String, _ urlFile: URL)
+        case file(_ key: String, _ urlFile: URL, _ fileName: String? = nil)
     }
     
     private func determineContentType(for url: URL) -> String {
