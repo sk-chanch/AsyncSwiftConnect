@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import Security
+import CryptoKit
 
 public typealias DidSendBodyData =  ((_ task: URLSessionTask,
                                      _ bytesSent: Int64,
@@ -14,78 +16,111 @@ public typealias DidSendBodyData =  ((_ task: URLSessionTask,
 
 public final class SessionPinningDelegate: NSObject, URLSessionDelegate {
     
-    private let isPreventPinning : Bool
-    
     let didSendBodyData: DidSendBodyData?
     
-    public init(statusPreventPinning:Bool){
-        isPreventPinning = statusPreventPinning
+    // Hash of Public Key (SHA-256 Base64 String)
+    private let pinnedPublicKeys: [String]
+    
+    // Standard Header Public Key (Because SecKeyCopyExternalRepresentation iOS drop Header)
+    private let rsa2048Asn1Header: [UInt8] = [
+        0x30, 0x82, 0x01, 0x22, 0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86,
+        0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00, 0x03, 0x82, 0x01, 0x0f, 0x00
+    ]
+    
+    private let ecdsaSecp256r1Asn1Header: [UInt8] = [
+        0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02,
+        0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03,
+        0x42, 0x00
+    ]
+    
+    public init(
+        pinnedPublicKeys: [String]
+    ){
+        self.pinnedPublicKeys = pinnedPublicKeys
         self.didSendBodyData = nil
     }
     
-    public init(statusPreventPinning:Bool, didSendBodyData: DidSendBodyData?){
+    public init(
+        pinnedPublicKeys: [String],
+        didSendBodyData: DidSendBodyData?
+    ){
         self.didSendBodyData = didSendBodyData
-        isPreventPinning = statusPreventPinning
+        self.pinnedPublicKeys = pinnedPublicKeys
     }
     
     public func urlSession(_ session: URLSession,
                            didReceive challenge: URLAuthenticationChallenge,
                            completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Swift.Void) {
         
-      
-        
-        guard isPreventPinning
-        else {
-            //print("Not use Certificate")
-            completionHandler(URLSession.AuthChallengeDisposition.performDefaultHandling, nil)
+        guard pinnedPublicKeys.isEmpty == false else {
+            completionHandler(.performDefaultHandling, nil)
             return
         }
         
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
         
-        //Adapted from OWASP https://www.owasp.org/index.php/Certificate_and_Public_Key_Pinning#iOS
+        guard let serverTrust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
         
-        guard (challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust)
-        else { return }
-        
-        guard let serverTrust = challenge.protectionSpace.serverTrust
-        else { return }
-        
-        var secresult:CFError?
+        var secresult: CFError?
         let status = SecTrustEvaluateWithError(serverTrust, &secresult)
         
-        guard status
-        else { return }
-        
-        guard let serverCertificate = SecTrustGetCertificateAtIndex(serverTrust, 0)
-        else { return }
-            
-        let serverCertificateData = SecCertificateCopyData(serverCertificate)
-        let data = CFDataGetBytePtr(serverCertificateData);
-        let size = CFDataGetLength(serverCertificateData);
-        let cert1 = NSData(bytes: data, length: size)
-        let file_cer = Bundle.main.path(forResource: "certificate", ofType: "cer")
-        
-        guard let file = file_cer
-        else { return }
-        
-        guard let cert2 = NSData(contentsOfFile: file)
-        else { return }
-        
-        guard cert1.isEqual(to: cert2 as Data)
-        else {
-            //Pinning failed
-            //print("failed Certificate")
-            completionHandler(URLSession.AuthChallengeDisposition.cancelAuthenticationChallenge, nil)
+        guard status else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
         
-        //print("Trust Certificate")
-        completionHandler(URLSession.AuthChallengeDisposition.useCredential, URLCredential(trust:serverTrust))
+        // 1. Count Certificate all in Chain (Leaf + Intermediate + Root)
+        let certificateCount = SecTrustGetCertificateCount(serverTrust)
+        var isPinned = false
         
+        // 2. For loop Certificate one by one
+        for i in 0..<certificateCount {
+            guard let serverCertificate = SecTrustGetCertificateAtIndex(serverTrust, i),
+                  let serverPublicKey = SecCertificateCopyKey(serverCertificate) else {
+                continue
+            }
+            
+            // Fetch Data of Public Key
+            var error: Unmanaged<CFError>?
+            guard let serverPublicKeyData = SecKeyCopyExternalRepresentation(serverPublicKey, &error) as Data? else {
+                continue
+            }
+            
+            // Create Data by use Header concat with Public Key Data
+            var rsaData = Data(rsa2048Asn1Header)
+            rsaData.append(serverPublicKeyData)
+            
+            var ecdsaData = Data(ecdsaSecp256r1Asn1Header)
+            ecdsaData.append(serverPublicKeyData)
+            
+            // Hash Data with SHA-256
+            let rsaHashBase64 = Data(SHA256.hash(data: rsaData)).base64EncodedString()
+            let ecdsaHashBase64 = Data(SHA256.hash(data: ecdsaData)).base64EncodedString()
+            
+            // Compare Hash with Pinned Keys
+            if pinnedPublicKeys.contains(rsaHashBase64) || pinnedPublicKeys.contains(ecdsaHashBase64) {
+                // if matched with any pinned key, consider it pinned
+                isPinned = true
+                break
+            }
+            
+        }
         
+        guard isPinned else {
+            // Pinning failed
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        
+        // Trust Public Key Hash
+        completionHandler(.useCredential, URLCredential(trust: serverTrust))
     }
-    
-    
 }
 
 extension SessionPinningDelegate: URLSessionTaskDelegate {

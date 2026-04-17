@@ -11,55 +11,60 @@ public typealias DecodError = Decodable & ErrorInfo
 
 public class Requester: NSObject {
     
-    private let baseUrl:String
+    private let baseUrl: String
     private lazy var decoder = JSONDecoder()
-    private let sessionConfig:URLSessionConfiguration
-    private let preventPinning:Bool
-    private let hasVersion:Bool
+    private let sessionConfig: URLSessionConfiguration
+    private let hasVersion: Bool
     private let progressTracker = ProgressTracker()
+    private let pinnedPublicKeys: [String]
     
     private lazy var session: URLSession = {
-        let sessionPinning = SessionPinningDelegate(statusPreventPinning: preventPinning, didSendBodyData: {  [weak self] task, bytesSent, totalBytesSent, totalBytesExpectedToSend in
-            // Call the global handler if provided
-            self?.didSendBodyData?(task, bytesSent, totalBytesSent, totalBytesExpectedToSend)
-            
-            if totalBytesExpectedToSend > 0 {
-                let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
+        let sessionPinning = SessionPinningDelegate(
+            pinnedPublicKeys: pinnedPublicKeys,
+            didSendBodyData: {  [weak self] task, bytesSent, totalBytesSent, totalBytesExpectedToSend in
+                // Call the global handler if provided
+                self?.didSendBodyData?(task, bytesSent, totalBytesSent, totalBytesExpectedToSend)
                 
-                Task {
-                    await self?.progressTracker.updateProgress(taskId: task.taskIdentifier,
-                                                               progress: progress)
-                }
-                
-                // Remove the progress handler when the upload is complete
-                if totalBytesSent >= totalBytesExpectedToSend {
+                if totalBytesExpectedToSend > 0 {
+                    let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
+                    
                     Task {
-                        await self?.progressTracker.remove(taskId: task.taskIdentifier)
+                        await self?.progressTracker.updateProgress(taskId: task.taskIdentifier,
+                                                                   progress: progress)
+                    }
+                    
+                    // Remove the progress handler when the upload is complete
+                    if totalBytesSent >= totalBytesExpectedToSend {
+                        Task {
+                            await self?.progressTracker.remove(taskId: task.taskIdentifier)
+                        }
                     }
                 }
             }
-        })
+        )
         
-        let session = URLSession(configuration: .default, delegate: sessionPinning, delegateQueue: nil)
+        let session = URLSession(configuration: sessionConfig, delegate: sessionPinning, delegateQueue: nil)
         
         return session
     }()
     
     var didSendBodyData: DidSendBodyData?
     
-    public init(initBaseUrl:String,
-                timeout:Int,
-                isPreventPinning:Bool,
-                initSessionConfig:URLSessionConfiguration,
-                hasVersion:Bool = false,
-                didSendBodyData: DidSendBodyData? = nil) {
+    public init(
+        initBaseUrl:String,
+        timeout:Int,
+        initSessionConfig: URLSessionConfiguration,
+        hasVersion:Bool = false,
+        pinnedPublicKeys: [String],
+        didSendBodyData: DidSendBodyData? = nil
+    ) {
         
         self.baseUrl = initBaseUrl
         //self.requester = initRequester
-        self.preventPinning = isPreventPinning
         self.sessionConfig = initSessionConfig
         self.sessionConfig.timeoutIntervalForRequest = TimeInterval(timeout)
         self.hasVersion = hasVersion
+        self.pinnedPublicKeys = pinnedPublicKeys
         self.didSendBodyData = didSendBodyData
     }
     
@@ -77,7 +82,7 @@ public class Requester: NSObject {
             headers: header,
             hasVersion: hasVersion).asURLRequest()
         
-        return try await self.call(requestParameter,config: sessionConfig,isPreventPinning: preventPinning)
+        return try await self.call(requestParameter, config: sessionConfig)
         
     }
     
@@ -94,7 +99,7 @@ public class Requester: NSObject {
             headers: header,
             hasVersion: hasVersion).asURLRequest()
         
-        return try await self.call(requestParameter,config: sessionConfig,isPreventPinning: preventPinning)
+        return try await self.call(requestParameter, config: sessionConfig)
         
     }
     
@@ -113,7 +118,7 @@ public class Requester: NSObject {
             version: version,
             hasVersion: hasVersion).asURLRequest()
         
-        return  try await self.call(requestParameter,config: sessionConfig,isPreventPinning: preventPinning)
+        return  try await self.call(requestParameter, config: sessionConfig)
         
     }
 #if canImport(SwiftUI)
@@ -156,7 +161,6 @@ public class Requester: NSObject {
         
         return  try await self.callUpload(requestParameter,
                                           config: sessionConfig,
-                                          isPreventPinning: preventPinning,
                                           dataUploadTask : data,
                                           progress: progress)
     }
@@ -175,7 +179,7 @@ public class Requester: NSObject {
             version: version,
             hasVersion: hasVersion).asURLRequest()
         
-        return  try await self.call(requestParameter,config: sessionConfig, isPreventPinning: preventPinning)
+        return  try await self.call(requestParameter, config: sessionConfig)
     }
     
     public func getRaw(path:String) async throws -> RawResponse {
@@ -190,17 +194,17 @@ public class Requester: NSObject {
         requestParameter.url = URL(string: path)
         
         return  try await self.call(requestParameter,
-                                    config: sessionConfig,
-                                    isPreventPinning: preventPinning)
+                                    config: sessionConfig)
         
     }
     
     
     
     
-    func call<DataResult:Decodable>(_ request: URLRequest,
-                                    config: URLSessionConfiguration,
-                                    isPreventPinning:Bool) async throws -> DataResult {
+    func call<DataResult:Decodable>(
+        _ request: URLRequest,
+        config: URLSessionConfiguration
+    ) async throws -> DataResult {
         do {
             let (data, response) = try await session.data(for: request)
             let responder = Responder()
@@ -210,7 +214,10 @@ public class Requester: NSObject {
         }
     }
     
-    func call(_ request: URLRequest, config:URLSessionConfiguration,isPreventPinning:Bool) async throws -> RawResponse {
+    func call(
+        _ request: URLRequest,
+        config:URLSessionConfiguration
+    ) async throws -> RawResponse {
         
         do {
             let (data, response) = try await session.data(for: request)
@@ -288,7 +295,6 @@ extension Requester{
     
     func callUpload<DataResult:Decodable>(_ request: URLRequest,
                                           config:URLSessionConfiguration,
-                                          isPreventPinning:Bool,
                                           dataUploadTask:Data?,
                                           progress: ((Double) -> Void)? = nil) async throws -> DataResult {
         guard let dataUploadTask = dataUploadTask
